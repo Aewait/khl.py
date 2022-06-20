@@ -12,6 +12,7 @@ log = logging.getLogger(__name__)
 
 
 class TaskManager(AsyncRunnable):
+    """manage tasks"""
     _scheduler: AsyncIOScheduler
 
     def __init__(self):

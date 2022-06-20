@@ -98,7 +98,8 @@ disable=raw-checker-failed,
         too-many-arguments,
         logging-fstring-interpolation,
         invalid-name,
-        redefined-builtin
+        redefined-builtin,
+        missing-module-docstring
 
 
 # Enable the message, report, category or checker with the given id(s). You can

@@ -2,6 +2,7 @@ from typing import List
 
 
 class Game:
+    """represents a game used in playing state"""
     id: int
     name: str
     type: int

@@ -34,6 +34,7 @@ class Gateway:
         return await self.requester.exec_paged_req(r, **kwargs)
 
     async def run(self, in_queue: asyncio.Queue):
+        """run the receiver"""
         self.receiver.pkg_queue = in_queue
         await self.receiver.start()
 
