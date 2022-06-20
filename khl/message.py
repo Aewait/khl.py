@@ -6,7 +6,7 @@ from .channel import PublicTextChannel, PrivateChannel
 from .context import Context
 from .gateway import Requestable
 from .guild import Guild
-from .interface import MessageTypes, ChannelPrivacyTypes, EventTypes
+from .types import MessageTypes, ChannelPrivacyTypes, EventTypes
 from .user import User
 
 

@@ -2,9 +2,9 @@ import json
 from typing import List, Union
 
 from . import api
-from .gateway import Requestable
-from .interface import LazyLoadable, MessageTypes
-from .role import Role
+from .gateway import Requestable, Gateway
+from .interface import LazyLoadable
+from .types import MessageTypes
 
 
 class User(LazyLoadable, Requestable):
@@ -25,6 +25,7 @@ class User(LazyLoadable, Requestable):
     mobile_verified: bool
 
     _loaded: bool
+    gate: Gateway
 
     def __init__(self, **kwargs):
         self.id = kwargs.get('id', '')

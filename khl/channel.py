@@ -5,8 +5,9 @@ from typing import Union, List, Dict, Optional
 
 from . import api
 from .gateway import Requestable, Gateway
-from .interface import LazyLoadable, MessageTypes, ChannelTypes, SlowModeTypes
+from .interface import LazyLoadable
 from .role import Role
+from .types import MessageTypes, ChannelTypes, SlowModeTypes
 from .user import User
 
 

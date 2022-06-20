@@ -4,10 +4,12 @@ from typing import List, Union, Dict, IO
 
 from . import api
 from .channel import Channel, public_channel_factory, PublicChannel
-from .gateway import Requestable
-from .interface import LazyLoadable, ChannelTypes, GuildMuteTypes
+from .gateway import Requestable, Gateway
+from .interface import LazyLoadable
 from .role import Role
+from .types import ChannelTypes, GuildMuteTypes
 from .user import User
+from .util import unpack_id
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ class GuildUser(User):
     joined_at: int
     active_time: int
     roles: List[int]
+    gate: Gateway
 
     def __init__(self, **kwargs):
         self.roles = kwargs.get('roles', [])
@@ -190,7 +193,8 @@ class Guild(LazyLoadable, Requestable):
         return [User(_gate_=self.gate, _lazy_loaded_=True, **i) for i in users]
 
     async def fetch_joined_channel(self, user: User, page: int = 1, page_size: int = 50) -> List[PublicChannel]:
-        channels = await self.gate.exec_pagination_req(api.ChannelUser.getJoinedChannel(page=page, page_size=page_size, guild_id=self.id, user_id=user.id))
+        channels = await self.gate.exec_pagination_req(
+            api.ChannelUser.getJoinedChannel(page=page, page_size=page_size, guild_id=self.id, user_id=user.id))
         return [public_channel_factory(self.gate, **i) for i in channels]
 
     async def fetch_user(self, user_id: str) -> GuildUser:
@@ -255,8 +259,7 @@ class Guild(LazyLoadable, Requestable):
         return await self.gate.exec_req(api.Channel.delete(channel.id))
 
     async def kickout(self, user: Union[User, str]):
-        target_id = user.id if isinstance(user, User) else user
-        return await self.gate.exec_req(api.Guild.kickout(guild_id=self.id, target_id=target_id))
+        return await self.gate.exec_req(api.Guild.kickout(guild_id=self.id, target_id=unpack_id(user)))
 
     async def leave(self):
         """leave from this guild"""

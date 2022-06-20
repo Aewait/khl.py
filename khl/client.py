@@ -9,9 +9,11 @@ from .channel import public_channel_factory, PublicChannel, Channel, PublicTextC
 from .game import Game
 from .gateway import Gateway, Requestable
 from .guild import Guild
-from .interface import AsyncRunnable, MessageTypes, SlowModeTypes
+from .interface import AsyncRunnable
 from .message import RawMessage, Message, Event, PublicMessage, PrivateMessage
+from .types import MessageTypes, SlowModeTypes
 from .user import User
+from .util import unpack_id
 
 log = logging.getLogger(__name__)
 
@@ -151,7 +153,7 @@ class Client(Requestable, AsyncRunnable):
 
     async def fetch_user(self, user: Union[User, str]) -> User:
         """fetch detail of the specific user"""
-        user_id = user.id if isinstance(user, User) else user
+        user_id = unpack_id(user)
         return User(_gate_=self.gate, _lazy_loaded_=True, **(await self.gate.exec_req(api.User.view(user_id))))
 
     async def fetch_guild(self, guild_id: str) -> Guild:
@@ -165,22 +167,19 @@ class Client(Requestable, AsyncRunnable):
         guilds_data = (await self.gate.exec_paged_req(api.Guild.list()))
         return [Guild(_gate_=self.gate, _lazy_loaded_=True, **i) for i in guilds_data]
 
-    async def leave(self, guild: Guild):
+    async def leave(self, guild: Union[Guild, str]):
         """leave from ``guild``"""
-        if guild.gate.requester != self.gate.requester:
-            raise ValueError('can not modify guild from other gate')
+        guild = Guild(_gate_=self.gate, id=guild) if isinstance(guild, str) else guild
         return await guild.leave()
 
     async def kickout(self, guild: Guild, user: Union[User, str]):
         """kick ``user`` out from ``guild``"""
-        if guild.gate.requester != self.gate.requester:
-            raise ValueError('can not modify guild from other gate')
+        guild = Guild(_gate_=self.gate, id=guild) if isinstance(guild, str) else guild
         return await guild.kickout(user)
 
     async def delete_channel(self, channel: Union[Channel, str]):
         """delete a channel, permission required"""
-        channel_id = channel if isinstance(channel, str) else channel.id
-        return await self.gate.exec_req(api.Channel.delete(channel_id))
+        return await self.gate.exec_req(api.Channel.delete(unpack_id(channel)))
 
     @staticmethod
     async def send(target: Channel,
@@ -263,7 +262,7 @@ class Client(Requestable, AsyncRunnable):
 
         :param game: accepts both Game object and bare game id(int type)
         """
-        await self.gate.exec_req(api.Game.delete(id=game if isinstance(game, int) else game.id))
+        await self.gate.exec_req(api.Game.delete(id=unpack_id(game)))
 
     async def update_playing_game(self, game: Union[Game, int], data_type: int):
         """update current playing game status
@@ -271,7 +270,7 @@ class Client(Requestable, AsyncRunnable):
         :param game: accepts both Game object and bare id(int type)
         :param data_type: 1 in default(means playing type is game)
         """
-        await self.gate.exec_req(api.Game.activity(id=game if isinstance(game, int) else game.id, data_type=data_type))
+        await self.gate.exec_req(api.Game.activity(id=unpack_id(game), data_type=data_type))
 
     async def stop_playing_game(self):
         """clear current playing game status"""
@@ -282,6 +281,7 @@ class Client(Requestable, AsyncRunnable):
                              name: str = None,
                              topic: str = None,
                              slow_mode: Union[int, SlowModeTypes] = None) -> PublicChannel:
+        """update channel's settings"""
         channel = channel if isinstance(channel, PublicChannel) else await self.fetch_public_channel(channel)
         channel_data = await channel.update(name, topic, slow_mode)
         return public_channel_factory(_gate_=self.gate, **channel_data)
