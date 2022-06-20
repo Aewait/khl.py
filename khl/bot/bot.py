@@ -1,10 +1,11 @@
+"""implementation of bot"""
 import asyncio
 import logging
-from typing import Dict, Callable, List, Optional, Union, Coroutine, IO
+from typing import Dict, Callable, List, Optional, Coroutine
 
 from .. import AsyncRunnable, MessageTypes, EventTypes  # interfaces & basics
 from .. import Cert, HTTPRequester, WebhookReceiver, WebsocketReceiver, Gateway, Client  # net related
-from .. import User, Channel, PublicChannel, PublicTextChannel, Guild, Event, Message  # concepts
+from .. import User, Event, Message  # concepts
 from ..command import CommandManager
 from ..game import Game
 from ..interface import SlowModeTypes
@@ -62,6 +63,7 @@ class Bot(AsyncRunnable):
         self.client.register(MessageTypes.TEXT, msg_handler)
         self.client.register(MessageTypes.KMD, msg_handler)
         self.client.register(MessageTypes.SYS, self._make_event_handler())
+
         self.command = CommandManager()
         self.task = TaskManager()
 
@@ -121,12 +123,13 @@ class Bot(AsyncRunnable):
                 return
             if not self._event_index[event.event_type]:
                 return
-            for h in self._event_index[event.event_type]:
-                await h(self, event)
+            for event_handler in self._event_index[event.event_type]:
+                await event_handler(self, event)
 
         return handler
 
     def add_event_handler(self, type: EventTypes, handler: TypeEventHandler):
+        """add an event handler function for EventTypes `type`"""
         if type not in self._event_index:
             self._event_index[type] = []
         self._event_index[type].append(handler)
@@ -140,11 +143,7 @@ class Bot(AsyncRunnable):
                 self.client.register(type, handler)
 
     def on_event(self, type: EventTypes):
-        """
-        decorator, register a function to handle events of the type
-
-        :param type: the type
-        """
+        """decorator, register a function to handle events of the type"""
 
         def dec(func: TypeEventHandler):
             self.add_event_handler(type, func)
@@ -158,7 +157,7 @@ class Bot(AsyncRunnable):
         """
 
         def dec(func: MessageHandler):
-            self.add_message_handler(func, *set(except_type + (MessageTypes.SYS,)))
+            self.add_message_handler(func, *set(except_type + (MessageTypes.SYS, )))
 
         return dec
 
@@ -279,7 +278,7 @@ class Bot(AsyncRunnable):
 
     async def create_game(self, name: str, process_name: str = None, icon: str = None) -> Game:
         """
-        
+
         Create a new game
 
         """
@@ -322,7 +321,11 @@ class Bot(AsyncRunnable):
         """
         await self.client.stop_playing_game()
 
-    async def update_channel(self, channel: Union[str, PublicChannel], name: str = None, topic: str = None, slow_mode: Union[int, SlowModeTypes] = None):
+    async def update_channel(self,
+                             channel: Union[str, PublicChannel],
+                             name: str = None,
+                             topic: str = None,
+                             slow_mode: Union[int, SlowModeTypes] = None):
         """
         update channel's settings
         """
@@ -336,6 +339,7 @@ class Bot(AsyncRunnable):
         await self.client.start()
 
     def run(self):
+        """run the bot in blocking mode"""
         if not self.loop:
             self.loop = asyncio.get_event_loop()
         try:

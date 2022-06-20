@@ -17,6 +17,9 @@ class CommandManager:
     def __init__(self):
         self._cmd_map = {}
 
+    # why disable duplicate-code:
+    # the duplicated code is the param list, used to provide auto complete/coding hints in IDE
+    # pylint: disable = duplicate-code
     def __call__(self,
                  name: str = '',
                  *,
@@ -76,7 +79,7 @@ class CommandManager:
         return cmd
 
     async def handle(self, loop, msg: Message, filter_args: dict):
-        for name, cmd in self._cmd_map.items():
+        for cmd in self._cmd_map.values():
             asyncio.ensure_future(cmd.handle(msg, filter_args), loop=loop)
 
     def update_prefixes(self, *prefixes: str) -> List[Command]:

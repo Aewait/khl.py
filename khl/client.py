@@ -1,15 +1,16 @@
+"""abstraction of khl client: handle to communicate with khl"""
 import asyncio
 import inspect
 import logging
 from typing import Dict, List, Callable, Coroutine, Union, IO
 
 from . import api
-from .channel import public_channel_factory, PublicChannel, Channel
+from .channel import public_channel_factory, PublicChannel, Channel, PublicTextChannel
 from .game import Game
 from .gateway import Gateway, Requestable
 from .guild import Guild
 from .interface import AsyncRunnable, MessageTypes, SlowModeTypes
-from .message import RawMessage, Event, PublicMessage, PrivateMessage
+from .message import RawMessage, Message, Event, PublicMessage, PrivateMessage
 from .user import User
 
 log = logging.getLogger(__name__)
@@ -21,7 +22,8 @@ class Client(Requestable, AsyncRunnable):
     """
     The bridge between khl.py internal components and khl server.
 
-    Translates network package into khl.py concepts/object for internal to use.
+    1. wraps net actions to khl backend, and translates raw objects into khl.py concepts/objects for internal use
+    3. distributes package unwrapped by Receiver according to a handler map
 
     reminder: Client.loop only used to run handle_event() and registered handlers.
     """
@@ -36,6 +38,7 @@ class Client(Requestable, AsyncRunnable):
         self._pkg_queue = asyncio.Queue()
 
     def register(self, type: MessageTypes, handler: TypeHandler):
+        """register handler to handle messages of type"""
         if not asyncio.iscoroutinefunction(handler):
             raise TypeError('handler must be a coroutine.')
 
@@ -48,9 +51,7 @@ class Client(Requestable, AsyncRunnable):
         self._handler_map[type].append(handler)
 
     async def handle_pkg(self):
-        """
-        consume `pkg` from `event_queue`
-        """
+        """consume `pkg` from `event_queue`"""
         while True:
             pkg: Dict = await self._pkg_queue.get()
             log.debug(f'upcoming pkg: {pkg}')
@@ -95,9 +96,9 @@ class Client(Requestable, AsyncRunnable):
     def _dispatch_msg(self, msg):
         if not msg:
             return
-        if msg.type in self._handler_map and self._handler_map[msg.type]:
-            for handler in self._handler_map[msg.type]:
-                asyncio.ensure_future(self._handle_safe(handler)(msg), loop=self.loop)
+        handlers = self._handler_map.get(msg.type, ())
+        for handler in handlers:
+            asyncio.ensure_future(self._handle_safe(handler)(msg), loop=self.loop)
 
     @staticmethod
     def _handle_safe(handler: TypeHandler):
@@ -106,7 +107,7 @@ class Client(Requestable, AsyncRunnable):
             try:
                 await handler(msg)
             except Exception as e:
-                log.exception(f'error raised during message handling', exc_info=e)
+                log.exception('error raised during message handling', exc_info=e)
 
         return safe_handler
 
@@ -115,8 +116,10 @@ class Client(Requestable, AsyncRunnable):
 
         if ``file`` is a str, ``open(file, 'rb')`` will be called to convert it into IO
         """
-        file = open(file, 'rb') if isinstance(file, str) else file
-        return (await self.gate.exec_req(api.Asset.create(file=file)))['url']
+        if not isinstance(file, str):
+            return (await self.gate.exec_req(api.Asset.create(file=file)))['url']
+        with open(file, 'rb') as f:
+            return (await self.gate.exec_req(api.Asset.create(file=f)))['url']
 
     async def fetch_me(self, force_update: bool = False) -> User:
         """fetch detail of the ``User`` on the client"""
@@ -146,31 +149,95 @@ class Client(Requestable, AsyncRunnable):
         channel_data = await self.gate.exec_req(api.Channel.view(channel_id))
         return public_channel_factory(_gate_=self.gate, **channel_data)
 
-    async def fetch_user(self, user_id: str) -> User:
+    async def fetch_user(self, user: Union[User, str]) -> User:
+        """fetch detail of the specific user"""
+        user_id = user.id if isinstance(user, User) else user
         return User(_gate_=self.gate, _lazy_loaded_=True, **(await self.gate.exec_req(api.User.view(user_id))))
 
-    async def delete_channel(self, channel: Union[Channel, str]):
-        return await self.gate.exec_req(api.Channel.delete(channel if isinstance(channel, str) else channel.id))
+    async def fetch_guild(self, guild_id: str) -> Guild:
+        """fetch details of a guild from khl"""
+        guild = Guild(_gate_=self.gate, id=guild_id)
+        await guild.load()
+        return guild
 
-    async def list_guild(self) -> List[Guild]:
+    async def fetch_guild_list(self) -> List[Guild]:
         """list guilds which the client joined"""
-        guilds_data = (await self.gate.exec_pagination_req(api.Guild.list()))
+        guilds_data = (await self.gate.exec_paged_req(api.Guild.list()))
         return [Guild(_gate_=self.gate, _lazy_loaded_=True, **i) for i in guilds_data]
 
-    async def list_game(self,
-                        *,
-                        begin_page: int = 1,
-                        end_page: int = None,
-                        page_size: int = 50,
-                        sort: str = '') -> List[Game]:
-        games = await self.gate.exec_pagination_req(api.game(),
-                                                    begin_page=begin_page,
-                                                    end_page=end_page,
-                                                    page_size=page_size,
-                                                    sort=sort)
+    async def leave(self, guild: Guild):
+        """leave from ``guild``"""
+        if guild.gate.requester != self.gate.requester:
+            raise ValueError('can not modify guild from other gate')
+        return await guild.leave()
+
+    async def kickout(self, guild: Guild, user: Union[User, str]):
+        """kick ``user`` out from ``guild``"""
+        if guild.gate.requester != self.gate.requester:
+            raise ValueError('can not modify guild from other gate')
+        return await guild.kickout(user)
+
+    async def delete_channel(self, channel: Union[Channel, str]):
+        """delete a channel, permission required"""
+        channel_id = channel if isinstance(channel, str) else channel.id
+        return await self.gate.exec_req(api.Channel.delete(channel_id))
+
+    @staticmethod
+    async def send(target: Channel,
+                   content: Union[str, List],
+                   *,
+                   type: MessageTypes = None,
+                   temp_target_id: str = '',
+                   **kwargs):
+        """
+        send a msg to a channel
+
+        ``temp_target_id`` is only available in ChannelPrivacyTypes.GROUP
+        """
+        if isinstance(target, PublicTextChannel):
+            kwargs['temp_target_id'] = temp_target_id
+
+        return await target.send(content, type=type, **kwargs)
+
+    @staticmethod
+    async def add_reaction(msg: Message, emoji: str):
+        """add emoji to msg's reaction list
+
+        wraps `Message.add_reaction`
+
+        :param msg: accepts `Message`
+        :param emoji: 😘
+        """
+        return await msg.add_reaction(emoji)
+
+    @staticmethod
+    async def delete_reaction(msg: Message, emoji: str, user: User = None):
+        """delete emoji from msg's reaction list
+
+        wraps `Message.delete_reaction`
+
+        :param msg: accepts `Message`
+        :param emoji: 😘
+        :param user: whose reaction, delete others added reaction requires channel msg admin permission
+        """
+        return await msg.delete_reaction(emoji, user)
+
+    async def fetch_game_list(self,
+                              *,
+                              begin_page: int = 1,
+                              end_page: int = None,
+                              page_size: int = 50,
+                              sort: str = '') -> List[Game]:
+        """list the games already registered at khl server"""
+        games = await self.gate.exec_paged_req(api.game(),
+                                               begin_page=begin_page,
+                                               end_page=end_page,
+                                               page_size=page_size,
+                                               sort=sort)
         return [Game(**game_data) for game_data in games]
 
-    async def create_game(self, name, process_name: str, icon: str) -> Game:
+    async def register_game(self, name, process_name: str, icon: str) -> Game:
+        """register a new game at khl server, can be used in profile status"""
         data = {
             'name': name,
         }
@@ -182,6 +249,7 @@ class Client(Requestable, AsyncRunnable):
         return Game(**game_data)
 
     async def update_game(self, id: int, name: str, icon: str) -> Game:
+        """update game already registered at khl server"""
         data = {'id': id}
         if name is not None:
             data['name'] = name
@@ -190,16 +258,29 @@ class Client(Requestable, AsyncRunnable):
         game_data = (await self.gate.exec_req(api.Game.update(**data)))
         return Game(**game_data)
 
-    async def delete_game(self, game: Union[Game, int]):
+    async def unregister_game(self, game: Union[Game, int]):
+        """unregister game from khl server
+
+        :param game: accepts both Game object and bare game id(int type)
+        """
         await self.gate.exec_req(api.Game.delete(id=game if isinstance(game, int) else game.id))
 
     async def update_playing_game(self, game: Union[Game, int], data_type: int):
+        """update current playing game status
+
+        :param game: accepts both Game object and bare id(int type)
+        :param data_type: 1 in default(means playing type is game)
+        """
         await self.gate.exec_req(api.Game.activity(id=game if isinstance(game, int) else game.id, data_type=data_type))
 
     async def stop_playing_game(self):
+        """clear current playing game status"""
         await self.gate.exec_req(api.Game.deleteActivity())
 
-    async def update_channel(self, channel: Union[str, PublicChannel], name: str = None, topic: str = None,
+    async def update_channel(self,
+                             channel: Union[str, PublicChannel],
+                             name: str = None,
+                             topic: str = None,
                              slow_mode: Union[int, SlowModeTypes] = None) -> PublicChannel:
         channel = channel if isinstance(channel, PublicChannel) else await self.fetch_public_channel(channel)
         channel_data = await channel.update(name, topic, slow_mode)

@@ -13,8 +13,8 @@ class Parser:
     """
     _parse_funcs: Dict[Any, Callable] = {
         str: lambda token: token,
-        int: lambda token: int(token),
-        float: lambda token: float(token)
+        int: int,
+        float: float
         # TODO: tag -> User/Channel/Role...
     }
 
@@ -31,12 +31,12 @@ class Parser:
         :raise: Parser.ArgListLenNotMatch
         """
         ret = []
-        for i in range(len(tokens)):
+        for i, v in enumerate(tokens):
             arg_type = params[min(i, len(params) - 1)].annotation
 
             # no type hint for t
             if arg_type == inspect.Parameter.empty:
-                ret.append(tokens[i])
+                ret.append(v)
                 continue
 
             if arg_type not in self._parse_funcs:
@@ -68,11 +68,12 @@ class Parser:
         return func
 
     class ParserException(Exception):
-        pass
+        ...
 
     class TooMuchArgs(ParserException):
 
         def __init__(self, expected: int, exact: int, func: Callable):
+            super().__init__()
             self.expected = expected
             self.exact = exact
             self.func = func
@@ -80,9 +81,11 @@ class Parser:
     class ParseFuncNotExists(ParserException):
 
         def __init__(self, expected: inspect.Parameter):
+            super().__init__()
             self.expected = expected
 
     class ParseException(ParserException):
 
         def __init__(self, err: Exception):
+            super().__init__()
             self.err = err

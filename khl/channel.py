@@ -1,6 +1,7 @@
+"""abstraction of khl concept channel: where messages flow in"""
 import json
 from abc import ABC, abstractmethod
-from typing import Union, List, Dict
+from typing import Union, List, Dict, Optional
 
 from . import api
 from .gateway import Requestable, Gateway
@@ -25,10 +26,16 @@ class Channel(LazyLoadable, Requestable, ABC):
     @property
     @abstractmethod
     def id(self) -> str:
+        """the channel's id
+
+        this field should be protected, thus only exported a read-only prop"""
         raise NotImplementedError
 
 
-class OverwritePermission:
+class RolePermission:
+    """part of channel permission, the permission setting for a specific role in the channel
+
+    this setting overwrites the role's permission set in the guild"""
     role_id: int
     allow: int
     deny: int
@@ -40,6 +47,7 @@ class OverwritePermission:
 
 
 class UserPermission:
+    """part of channel permission, the permission setting for a specific user"""
     user: User
     allow: int
     deny: int
@@ -51,17 +59,17 @@ class UserPermission:
 
 
 class ChannelPermission(LazyLoadable, Requestable):
-    """
-    there are
+    """permission settings in a channel, which can be customized.
 
+    the custom permission entry can be divided into two types:
+    1. customized role permission: overwrites the role's global permission settings
+    2. customized user permission: exclusively set a user's permission in the channel
     """
     _id: str  # bound channel id
-
-    overwrites: List[OverwritePermission]
-
-    users: List[UserPermission]
-
     _sync: int
+
+    roles: List[RolePermission]
+    users: List[UserPermission]
 
     @property
     def id(self) -> str:
@@ -83,10 +91,10 @@ class ChannelPermission(LazyLoadable, Requestable):
         self._load_fields(**kwargs)
 
     def _load_fields(self, **kwargs):
-        self.overwrites = [OverwritePermission(**i) for i in kwargs.get('permission_overwrites', [])]
+        self.roles = [RolePermission(**i) for i in kwargs.get('permission_overwrites', [])]
         self.users = [UserPermission(**i) for i in kwargs.get('permission_users', [])]
         self._sync = kwargs.get('permission_sync', None)
-        if self.overwrites and self.users and (self._sync is not None):
+        if self.roles and self.users and (self._sync is not None):
             self._loaded = True
 
     async def load(self):
@@ -94,6 +102,7 @@ class ChannelPermission(LazyLoadable, Requestable):
 
 
 class PublicChannel(Channel, ABC):
+    """the channels in guild, in contrast to PrivateChannel(private chat)"""
     name: str
     user_id: str
     guild_id: str
@@ -149,11 +158,15 @@ class PublicChannel(Channel, ABC):
         return rt
 
     async def fetch_permission(self, force_update: bool = True) -> ChannelPermission:
+        """fetch permission setting of the channel"""
         if force_update or not self.permission.loaded:
             await self.permission.load()
         return self.permission
 
     async def create_permission(self, target: Union[User, Role]):
+        """create a customized permission setting entry
+
+        for permission setting entry, please refer to `ChannelPermission`"""
         t = 'role_id' if isinstance(target, Role) else 'user_id'
         v = target.id
         d = await self.gate.exec_req(api.ChannelRole.create(channel_id=self.id, type=t, value=v))
@@ -161,12 +174,18 @@ class PublicChannel(Channel, ABC):
         return d
 
     async def update_permission(self, target: Union[User, Role], allow: int = 0, deny: int = 0) -> Role:
+        """update a customized permission setting entry
+
+        for permission setting entry, please refer to `ChannelPermission`"""
         t = 'role_id' if isinstance(target, Role) else 'user_id'
         v = target.id
         return await self.gate.exec_req(
             api.ChannelRole.update(channel_id=self.id, type=t, value=v, allow=allow, deny=deny))
 
     async def delete_permission(self, target: Union[User, Role]):
+        """delete a customized permission setting entry
+
+        for permission setting entry, please refer to `ChannelPermission`"""
         t = 'role_id' if isinstance(target, Role) else 'user_id'
         v = target.id
         return await self.gate.exec_req(api.ChannelRole.delete(channel_id=self.id, type=t, value=v))
@@ -179,9 +198,6 @@ class PublicTextChannel(PublicChannel):
     Text chat channels in guild
     """
     slow_mode: int
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
 
     def _update_fields(self, **kwargs):
         super()._update_fields(**kwargs)
@@ -216,25 +232,24 @@ class PublicVoiceChannel(PublicChannel):
     a placeholder now for future design/adaption
     """
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
     async def send(self, content: Union[str, List], **kwargs):
         raise TypeError('now there is no PublicVoiceChannel, *hey dude we have a pkg from future*')
 
 
-def public_channel_factory(_gate_: Gateway, **kwargs) -> PublicChannel:
+def public_channel_factory(_gate_: Gateway, **kwargs) -> Optional[PublicChannel]:
+    """factory function to build a channel object"""
     kwargs['type'] = kwargs['type'] if isinstance(kwargs['type'], ChannelTypes) else ChannelTypes(kwargs['type'])
     if kwargs['type'] == ChannelTypes.TEXT:
         return PublicTextChannel(**kwargs, _gate_=_gate_)
-    elif kwargs['type'] == ChannelTypes.VOICE:
+    if kwargs['type'] == ChannelTypes.VOICE:
         return PublicVoiceChannel(**kwargs, _gate_=_gate_)
+    return None
 
 
 class PrivateChannel(Channel):
-    """
-    Private chat channel
-    """
+    """Private chat channel
+
+    a private channel associates the code and another user(called as target in the following)"""
 
     code: str
     last_read_time: int
@@ -267,18 +282,22 @@ class PrivateChannel(Channel):
 
     @property
     def target_user_id(self) -> str:
+        """prop, the target's id"""
         return self.target_info.get('id') if self.target_info else None
 
     @property
     def target_user_name(self) -> str:
+        """prop, the target's name"""
         return self.target_info.get('username') if self.target_info else None
 
     @property
     def is_target_user_online(self) -> bool:
+        """prop, is the target online"""
         return self.target_info.get('online') if self.target_info else None
 
     @property
     def target_user_avatar(self) -> str:
+        """prop, the target's avatar"""
         return self.target_info.get('avatar') if self.target_info else None
 
     async def send(self, content: Union[str, List], *, type: MessageTypes = None, **kwargs):

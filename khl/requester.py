@@ -9,7 +9,7 @@ from .cert import Cert
 
 log = logging.getLogger(__name__)
 
-API = f'https://www.kaiheila.cn/api/v3'
+API = 'https://www.kaiheila.cn/api/v3'
 
 
 class HTTPRequester:
@@ -41,15 +41,17 @@ class HTTPRequester:
     async def exec_req(self, r: _Req):
         return await self.request(r.method, r.route, **r.params)
 
-    async def exec_pagination_req(self,
-                                  r: _Req,
-                                  *,
-                                  begin_page: int = 1,
-                                  end_page: int = None,
-                                  page_size: int = 50,
-                                  sort: str = '') -> List:
+    async def exec_paged_req(self,
+                             r: _Req,
+                             *,
+                             begin_page: int = 1,
+                             end_page: int = None,
+                             page_size: int = 50,
+                             sort: str = '') -> List:
         """
-        exec pagination requests, iter from ``begin_page`` to the ``end_page``, ``end_page=None`` means to the end
+        execute paged requests
+
+        iter from ``begin_page`` to the ``end_page``, ``end_page=None`` means to the end
 
         1. get a req, inject the params
         2. req and receive the result
@@ -77,14 +79,16 @@ class HTTPRequester:
         return ret
 
     class APIRequestFailed(Exception):
-        """
-        Raised when khl.py received non-zero error code from remote server. 
-        By default, params (request body) is not included when calling __str__ on it, to avoid leaking credential 
-        into logs; if request body is needed for debug purpose, consider explicitly catching this exception and 
-        call repr(...) with the exception instance.
-        """
+        """Raised when khl.py received non-zero error code from remote server.
+
+        By default, params (request body) is not included when calling __str__ on it, to avoid leaking credential
+        into logs;
+
+        if request body is needed for debug purpose, consider explicitly catching this exception and
+        call repr(...) with the exception instance."""
 
         def __init__(self, method, route, params, err_code, err_message):
+            super().__init__()
             self.method = method
             self.route = route
             self.params = params

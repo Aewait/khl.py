@@ -88,7 +88,6 @@ class Message(RawMessage, Requestable, ABC):
 
         :param emoji: 😘
         """
-        ...
 
     @abstractmethod
     async def delete_reaction(self, emoji: str, user: User):
@@ -101,7 +100,6 @@ class Message(RawMessage, Requestable, ABC):
         :param emoji: 😘
         :param user: whose reaction, delete others added reaction requires channel msg admin permission
         """
-        ...
 
     async def reply(self,
                     content: Union[str, List] = '',
@@ -140,8 +138,7 @@ class PublicMessage(Message):
     def channel(self) -> PublicTextChannel:
         if isinstance(self.ctx.channel, PublicTextChannel):
             return self.ctx.channel
-        else:
-            raise ValueError('PublicMessage should be placed in PublicTextChannel')
+        raise ValueError('PublicMessage should be placed in PublicTextChannel')
 
     @property
     def mention(self) -> List[str]:
@@ -207,9 +204,6 @@ class PrivateMessage(Message):
 
 
 class Event(RawMessage):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
 
     @property
     def event_type(self) -> EventTypes:
