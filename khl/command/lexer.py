@@ -4,7 +4,8 @@ import shlex
 from abc import ABC, abstractmethod
 from typing import List, Set, Union, Pattern
 
-from khl.message import Message
+from khl import Message
+from .exception import Exceptions
 
 log = logging.getLogger(__name__)
 
@@ -23,14 +24,6 @@ class Lexer(ABC):
         :return: Tuple(is the msg match the lexer, thrived tokens)
         """
         raise NotImplementedError
-
-    class LexerException(Exception):
-
-        def __init__(self, msg: Message):
-            self.msg = msg
-
-    class NotMatched(LexerException):
-        ...
 
 
 class DefaultLexer(Lexer):
@@ -56,23 +49,20 @@ class DefaultLexer(Lexer):
         """
         matched_prefixes = [p for p in self.prefixes if msg.content.startswith(p)]
         if not matched_prefixes:
-            raise Lexer.NotMatched(msg)
+            raise Exceptions.Lexer.NotMatched()
 
         for prefix in matched_prefixes:
             try:
                 arg_list = shlex.split(msg.content[len(prefix):])
-            except Exception:
-                raise DefaultLexer.MalformedContent(msg)
+            except Exception as e:
+                raise DefaultLexer.MalformedContent(msg) from e
             # check if trigger exists
             if (arg_list[0] if len(arg_list) > 0 else '') not in self.triggers:
-                raise Lexer.NotMatched(msg)
+                raise Exceptions.Lexer.NotMatched()
             return arg_list[1:]  # arg_list[0] is trigger
 
-    class MalformedContent(Lexer.LexerException):
-        pass
-
-    class NoMatchedTrigger(Lexer.LexerException):
-        pass
+    class MalformedContent(Exceptions.Lexer.LexFailed):
+        """the content can not be shlex.split()"""
 
 
 class RELexer(Lexer):
@@ -90,5 +80,5 @@ class RELexer(Lexer):
     def lex(self, msg: Message) -> List[str]:
         m = self.pattern.fullmatch(msg.content)
         if not m:
-            raise Lexer.NotMatched(msg)
+            raise Exceptions.Lexer.NotMatched()
         return [m[i] for i in range(1, len(m.groups()) + 1) if m.start(i) < len(msg.content)]

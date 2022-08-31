@@ -1,9 +1,10 @@
 import asyncio
 import logging
-from typing import Optional, List, Union, Pattern, Dict
+from typing import Optional, List, Union, Pattern, Dict, Any
 
-from khl import Message
+from khl import Message, Client
 from .command import Command
+from .exception import TypeEHandler
 from .lexer import Lexer, DefaultLexer
 from .parser import Parser
 from .rule import TypeRule
@@ -12,22 +13,29 @@ log = logging.getLogger(__name__)
 
 
 class CommandManager:
+    """aggregates commands as a system, and provide API as a whole"""
     _cmd_map: Dict[str, Command]
 
     def __init__(self):
         self._cmd_map = {}
 
-    def __call__(self,
-                 name: str = '',
-                 *,
-                 help: str = '',
-                 desc: str = '',
-                 aliases: List[str] = (),
-                 prefixes: List[str] = ('/', ),
-                 regex: Union[str, Pattern] = '',
-                 lexer: Lexer = None,
-                 parser: Parser = None,
-                 rules: List[TypeRule] = ()):
+    # why disable duplicate-code:
+    # the duplicated code is the param list, used to provide auto complete/coding hints in IDE
+    # pylint: disable = duplicate-code
+    def __call__(
+            self,
+            name: str = '',
+            *,
+            help: str = '',
+            desc: str = '',
+            aliases: List[str] = (),
+            prefixes: List[str] = ('/', ),
+            regex: Union[str, Pattern] = '',
+            lexer: Lexer = None,
+            parser: Parser = None,
+            rules: List[TypeRule] = (),
+            exc_handlers: Dict[Any, TypeEHandler] = None,
+    ):
         """
         decorator, wrap a function in Command and register it on current Bot
 
@@ -50,7 +58,8 @@ class CommandManager:
             'regex': regex,
             'lexer': lexer,
             'parser': parser,
-            'rules': rules
+            'rules': rules,
+            'exc_handlers': exc_handlers
         }
 
         return lambda func: self.add(Command.command(name, **args)(func))
@@ -75,9 +84,10 @@ class CommandManager:
             del self._cmd_map[name]
         return cmd
 
-    async def handle(self, loop, msg: Message, filter_args: dict):
-        for name, cmd in self._cmd_map.items():
-            asyncio.ensure_future(cmd.handle(msg, filter_args), loop=loop)
+    async def handle(self, loop, client: Client, msg: Message, filter_args: dict):
+        """pass msg into all commands in self, handle it concurrently"""
+        for cmd in self._cmd_map.values():
+            asyncio.ensure_future(cmd.handle(msg, client, filter_args), loop=loop)
 
     def update_prefixes(self, *prefixes: str) -> List[Command]:
         """update command prefixes in the Manager if command uses DefaultLexer
@@ -105,5 +115,6 @@ class CommandManager:
     def __iter__(self):
         return iter(self._cmd_map)
 
-    def items(self) -> [str, Command]:
+    def items(self):
+        """all commands in self, keyed by command name"""
         return self._cmd_map.items()

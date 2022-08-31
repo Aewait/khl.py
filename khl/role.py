@@ -1,4 +1,4 @@
-from .interface import RoleTypes
+from ._types import RoleTypes
 
 
 class Role:
