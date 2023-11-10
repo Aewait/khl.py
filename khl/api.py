@@ -31,7 +31,7 @@ def req(method: str, **http_fields):
             # dump args into kwargs
             param_names = list(inspect.signature(func).parameters.keys())
             for i, arg in enumerate(args):
-                kwargs[param_names[i]] = arg
+                kwargs[param_names[i].lstrip('_')] = arg
 
             params = _merge_params(method, http_fields, kwargs)
             return _Req(method, route, params)
@@ -153,6 +153,18 @@ class GuildMute:
         ...
 
 
+class GuildBoost:
+
+    @staticmethod
+    @req('GET')
+    def history(
+            guild_id,
+            start_time,
+            end_time
+    ):
+        ...
+
+
 class Blacklist:
 
     @staticmethod
@@ -212,6 +224,11 @@ class Channel:
     @staticmethod
     @req('POST')
     def delete(channel_id):
+        ...
+
+    @staticmethod
+    @req('GET')
+    def userList(channel_id):
         ...
 
     @staticmethod
@@ -284,6 +301,7 @@ class Message:
         msg_id,
         pin,
         flag,
+        page_size
     ):
         ...
 
@@ -591,7 +609,7 @@ class Invite:
 
 
 @req('GET')
-def game():
+def game(type):
     ...
 
 
@@ -641,5 +659,51 @@ class Oauth2:
         client_secret,
         code,
         redirect_uri
+    ):
+        ...
+
+
+@req('GET')
+def friend(type):
+    ...
+
+
+class Friend:
+
+    @staticmethod
+    @req('POST')
+    def request(
+        user_code,
+        _from,
+        guild_id=None,
+    ):
+        ...
+
+    @staticmethod
+    @req('POST')
+    def handleRequest(
+        id,
+        accept
+    ):
+        ...
+
+    @staticmethod
+    @req('POST')
+    def delete(
+        user_id
+    ):
+        ...
+
+    @staticmethod
+    @req('POST')
+    def block(
+        user_id
+    ):
+        ...
+
+    @staticmethod
+    @req('POST')
+    def unblock(
+        user_id
     ):
         ...

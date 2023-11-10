@@ -1,15 +1,16 @@
 """abstraction of khl concept channel: where messages flow in"""
 import json
 from abc import ABC, abstractmethod
-from typing import Union, List, Dict, Optional
+from typing import Union, List, Dict
 
 from . import api
+from ._types import MessageTypes, ChannelTypes, SlowModeTypes, MessageFlagModes
 from .gateway import Requestable, Gateway
 from .interface import LazyLoadable
+from .permission import ChannelPermission, PermissionHolder
 from .role import Role
-from ._types import MessageTypes, ChannelTypes, SlowModeTypes
-from .user import User
-from .util import unpack_value
+from .user import User, GuildUser
+from .util import unpack_value, unpack_id
 
 
 class Channel(LazyLoadable, Requestable, ABC):
@@ -34,76 +35,7 @@ class Channel(LazyLoadable, Requestable, ABC):
         raise NotImplementedError
 
 
-class RolePermission:
-    """part of channel permission, the permission setting for a specific role in the channel
-
-    this setting overwrites the role's permission set in the guild"""
-    role_id: int
-    allow: int
-    deny: int
-
-    def __init__(self, *, role_id: int, allow: int, deny: int):
-        self.role_id = role_id
-        self.allow = allow
-        self.deny = deny
-
-
-class UserPermission:
-    """part of channel permission, the permission setting for a specific user"""
-    user: User
-    allow: int
-    deny: int
-
-    def __init__(self, *, user: User, allow: int, deny: int):
-        self.user = user
-        self.allow = allow
-        self.deny = deny
-
-
-class ChannelPermission(LazyLoadable, Requestable):
-    """permission settings in a channel, which can be customized.
-
-    the custom permission entry can be divided into two types:
-    1. customized role permission: overwrites the role's global permission settings
-    2. customized user permission: exclusively set a user's permission in the channel
-    """
-    _id: str  # bound channel id
-    _sync: int
-
-    roles: List[RolePermission]
-    users: List[UserPermission]
-
-    @property
-    def id(self) -> str:
-        """which channel the permission belongs to"""
-        return self._id
-
-    @property
-    def sync(self) -> bool:
-        """if this channel's permission sync with category"""
-        return self._sync != 0
-
-    @sync.setter
-    def sync(self, value: bool):
-        self._sync = 1 if value else 0
-
-    def __init__(self, **kwargs):
-        self._id: str = kwargs.get('id')
-        self.gate = kwargs.get('_gate_')
-        self._load_fields(**kwargs)
-
-    def _load_fields(self, **kwargs):
-        self.roles = [RolePermission(**i) for i in kwargs.get('permission_overwrites', [])]
-        self.users = [UserPermission(**i) for i in kwargs.get('permission_users', [])]
-        self._sync = kwargs.get('permission_sync', None)
-        if self.roles and self.users and (self._sync is not None):
-            self._loaded = True
-
-    async def load(self):
-        self._load_fields(**await self.gate.exec_req(api.ChannelRole.index(channel_id=self.id)))
-
-
-class PublicChannel(Channel, ABC):
+class PublicChannel(Channel, PermissionHolder, ABC):
     """the channels in guild, in contrast to PrivateChannel(private chat)"""
     name: str
     user_id: str
@@ -112,7 +44,6 @@ class PublicChannel(Channel, ABC):
     is_category: int
     parent_id: str
     level: int
-    permission: ChannelPermission
 
     def __init__(self, **kwargs):
         self._id: str = kwargs.get('id')
@@ -154,65 +85,48 @@ class PublicChannel(Channel, ABC):
         await self.load()
         return rt
 
-    async def fetch_permission(self, force_update: bool = True) -> ChannelPermission:
-        """fetch permission setting of the channel"""
-        if force_update or not self.permission.loaded:
-            await self.permission.load()
-        return self.permission
+    async def list_users(self,
+                         search: str = None,
+                         role: Union[Role, str, int] = None,
+                         mobile_verified: bool = None,
+                         active_time: int = None,
+                         joined_at: int = None,
+                         page: int = 1,
+                         page_size: int = 50,
+                         filter_user_id: str = None) -> List[User]:
+        """list the users who can see this channel"""
+        params = {'guild_id': self.guild_id, 'channel_id': self.id, 'page': page, 'page_size': page_size}
+        if search is not None:
+            params['search'] = search
+        if role is not None:
+            params['role_id'] = unpack_id(role)
+        if mobile_verified is not None:
+            params['mobile'] = 1 if mobile_verified else 0
+        if active_time is not None and active_time in [0, 1]:
+            params['active_time'] = active_time
+        if joined_at is not None and joined_at in [0, 1]:
+            params['joined_at'] = joined_at
+        if filter_user_id is not None:
+            params['filter_user_id'] = filter_user_id
+        users = await self.gate.exec_paged_req(api.Guild.userList(**params))
+        return [User(_gate_=self.gate, _lazy_loaded_=True, **i) for i in users]
 
-    async def create_user_permission(self, target: Union[User, str]):
-        """create a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'user_id'
-        v = target.id if isinstance(target, User) else target
-        d = await self.gate.exec_req(api.ChannelRole.create(channel_id=self.id, type=t, value=v))
-        self.permission.loaded = False
-        return d
-
-    async def update_user_permission(self, target: Union[User, str], allow: int = 0, deny: int = 0) -> Role:
-        """update a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'user_id'
-        v = target.id if isinstance(target, User) else target
-        return await self.gate.exec_req(
-            api.ChannelRole.update(channel_id=self.id, type=t, value=v, allow=allow, deny=deny))
-
-    async def delete_user_permission(self, target: Union[User, str]):
-        """delete a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'user_id'
-        v = target.id if isinstance(target, User) else target
-        return await self.gate.exec_req(api.ChannelRole.delete(channel_id=self.id, type=t, value=v))
-
-    async def create_role_permission(self, target: Union[Role, str]):
-        """create a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'role_id'
-        v = target.id if isinstance(target, Role) else target
-        d = await self.gate.exec_req(api.ChannelRole.create(channel_id=self.id, type=t, value=v))
-        self.permission.loaded = False
-        return d
-
-    async def update_role_permission(self, target: Union[Role, str], allow: int = 0, deny: int = 0) -> Role:
-        """update a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'role_id'
-        v = target.id if isinstance(target, Role) else target
-        return await self.gate.exec_req(
-            api.ChannelRole.update(channel_id=self.id, type=t, value=v, allow=allow, deny=deny))
-
-    async def delete_role_permission(self, target: Union[Role, str]):
-        """delete a customized permission setting entry
-
-        for permission setting entry, please refer to `ChannelPermission`"""
-        t = 'role_id'
-        v = target.id if isinstance(target, Role) else target
-        return await self.gate.exec_req(api.ChannelRole.delete(channel_id=self.id, type=t, value=v))
+    async def list_messages(self,
+                            page_size: int = None,
+                            pin: int = None,
+                            flag: MessageFlagModes = None,
+                            msg_id: str = None) -> Dict:
+        """list the messages in this channel (only for public channel now)"""
+        params = {'target_id': self.id}
+        if page_size is not None:
+            params['page_size'] = page_size
+        if pin is not None:
+            params['pin'] = pin
+        if flag is not None:
+            params['flag'] = flag
+        if msg_id is not None:
+            params['msg_id'] = msg_id
+        return await self.gate.exec_req(api.Message.list(**params))
 
 
 class PublicTextChannel(PublicChannel):
@@ -264,8 +178,13 @@ class PublicVoiceChannel(PublicChannel):
         user_ids = [u.id if isinstance(u, User) else u for u in users]
         return await self.gate.exec_req(api.Channel.moveUser(target_id=self.id, user_ids=user_ids))
 
+    async def fetch_user_list(self) -> List[GuildUser]:
+        """get users chatting in the voice channel"""
+        users = await self.gate.exec_req(api.Channel.userList(channel_id=self.id))
+        return [GuildUser(_gate_=self.gate, guild_id=self.guild_id, _lazy_loaded_=True, **i) for i in users]
 
-def public_channel_factory(_gate_: Gateway, **kwargs) -> Optional[PublicChannel]:
+
+def public_channel_factory(_gate_: Gateway, **kwargs) -> Union[PublicTextChannel, PublicVoiceChannel]:
     """factory function to build a channel object"""
     kwargs['type'] = kwargs['type'] if isinstance(kwargs['type'], ChannelTypes) else ChannelTypes(kwargs['type'])
     if kwargs['type'] == ChannelTypes.TEXT:

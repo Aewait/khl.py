@@ -44,6 +44,7 @@ class EventTypes(Enum):
     DELETED_REACTION = 'deleted_reaction'
     UPDATED_MESSAGE = 'updated_message'
     DELETED_MESSAGE = 'deleted_message'
+    MESSAGE_UPDATED = 'message_updated'
 
     PRIVATE_ADDED_REACTION = 'private_added_reaction'
     PRIVATE_DELETED_REACTION = 'private_deleted_reaction'
@@ -78,6 +79,10 @@ class EventTypes(Enum):
 
     PINNED_MESSAGE = 'pinned_message'
     UNPINNED_MESSAGE = 'unpinned_message'
+
+    ADDED_EMOJI = 'added_emoji'
+    DELETED_EMOJI = 'deleted_emoji'
+    UPDATED_EMOJI = 'updated_emoji'
 
 
 class GuildMuteTypes(IntEnum):
@@ -127,3 +132,31 @@ class SoftwareTypes(Enum):
     CLOUD_MUSIC = "cloudmusic"
     QQ_MUSIC = "qqmusic"
     KUGOU_MUSIC = "kugou"
+
+
+class BadgeTypes(IntEnum):
+    """types of guild badges"""
+    NAME = 0
+    ONLINE = 1
+    ONLINE_MAX = 2
+
+
+class MessageFlagModes(Enum):
+    """types of message flag mode"""
+    BEFORE = 'before'
+    AFTER = 'after'
+    AROUND = 'around'
+
+
+class GameTypes(Enum):
+    """types of games"""
+    ALL = '0'
+    USER_CREATED = '1'
+    SYSTEM_CREATED = '2'
+
+
+class FriendTypes(Enum):
+    """types of friends"""
+    REQUEST = "request"
+    FRIEND = "friend"
+    BLOCKED = "blocked"

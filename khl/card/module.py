@@ -19,7 +19,10 @@ class Module:
         _text: Element.Text
 
         def __init__(self, text: Union[Element.Text, str] = ''):
-            self._text = text
+            if isinstance(text, str):
+                text = Element.Text(text)
+            # Force header to use plain because KOOK right now only supports using plain in header
+            self._text = Element.Text(text.content, Types.Text.PLAIN, text.emoji)
             super().__init__(Types.Theme.NA, Types.Size.NA)
 
         @property
@@ -46,6 +49,8 @@ class Module:
                      text: Union[Element.Text, str, Struct.Paragraph] = '',
                      accessory: Union[Element.Image, Element.Button, None] = None,
                      mode: Union[Types.SectionMode, str] = Types.SectionMode.LEFT):
+            if isinstance(text, str):
+                text = Element.Text(text)
             self.text = text
             self.mode = mode
             self.accessory = accessory
